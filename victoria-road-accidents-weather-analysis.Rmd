@@ -1,0 +1,626 @@
+---
+title: "Impact of Weather on Road Traffic Accidents in Victoria"
+author: "Sujay Narayana"
+output: html_document
+---
+
+# Project Overview
+
+Road traffic accidents are influenced by a range of environmental and contextual factors. Extreme weather conditions, particularly temperature-related events, can impact driver behaviour, vehicle performance, and overall road safety.
+
+This project analyses historical road traffic accident data in Victoria and examines how weather patterns—especially extreme heat events—relate to accident frequency. The objective is to generate insights that could support data-driven planning for emergency services and public safety stakeholders.
+
+---
+
+# Data Sources
+
+This analysis uses two primary datasets:
+
+- Victorian road traffic accident data containing daily accident counts by region and severity.
+- Daily weather observations sourced from NOAA, including temperature-related variables used to derive heatwave indicators.
+
+Both datasets cover overlapping time periods, enabling direct integration and comparison.
+
+---
+
+## Data Ingestion and Initial Exploration
+
+The analysis begins by loading the required R libraries and importing the road traffic accident dataset.
+This step establishes the analytical environment and allows for an initial inspection of the data
+structure, variables, and overall dimensions.
+
+
+
+
+```{r}
+library(readr)
+dataset <- read.csv("C:/Users/91636/Downloads/SIT/T9.D2-resources/T09.D2/car_accidents_victoria.csv")
+head(dataset)
+Rows = dim(dataset)[1]
+Cols = dim(dataset)[2]
+print(paste("The number of rows in the car dataset is:", Rows, 
+            "The number of columns in the car dataset is:", Cols))
+```
+## Data Cleaning and Column Standardisation
+
+The raw accident dataset contains multiple header rows, a structure commonly produced by reporting
+systems. Column names are cleaned and standardised to ensure consistency and enable reliable
+downstream analysis.
+
+
+```{r}
+'There are only 2 types of datatypes present in the dataset. they are:
+1.Integer: Specifically represents integer values.
+2.Date: Represents date values.'
+
+dataset = read.csv("C:/Users/91636/Downloads/SIT/T9.D2-resources/T09.D2/car_accidents_victoria.csv",header = TRUE, skip = 1)
+
+dataset$DATE <- as.Date(dataset$DATE,format = "%d/%m/%Y")
+
+data_types <- sapply(dataset, class)
+print(data_types)
+
+```
+
+
+```{r}
+num_regions <- 7  # Since there are 7 sets of columns representing 7 regions
+
+print(paste("The number of regions in the data is:", num_regions))
+
+start_date <- min(dataset$DATE, na.rm = TRUE)
+
+end_date <- max(dataset$DATE, na.rm = TRUE)
+
+
+
+print(paste("The time period covered by the data is from", start_date, "to", end_date))
+```
+
+
+```{r}
+' The FATAL and SERIOUS variables show the number of car accidents that occurred in different regions across Victoria. 
+
+FATAL ACCIDENT: An accident in which a person dies within 30 days of the accident as a result of the accident, excluding deaths caused by severe illnesses.
+
+SERIOUS ACCIDENT: A serious accident or injury is defined as a wound or other specific damage to the body, such as unconsciousness, shattered bones, or dislocation, that causes life-threatening injuries to the people involved. '
+```
+
+```{r}
+
+library(writexl)
+library(readr)
+library(dplyr)
+library(stringr)
+
+dataset <- 'C:/Users/91636/Downloads/SIT/T9.D2-resources/T09.D2/car_accidents_victoria.csv'
+top_row <- read_csv(dataset, col_names = FALSE, n_max = 1)
+second_row <- read_csv(dataset, n_max = 1)
+column_names <- second_row %>%
+unlist(., use.names=FALSE) %>%
+make.unique(., sep = "__")# double underscore
+column_names[2:5] <- str_c(column_names[2:5], '0', sep='__')
+daily_accidents <-
+read_csv(dataset, skip = 2, col_names = column_names)
+head(daily_accidents)
+
+```
+## Data Reshaping into Tidy Format
+
+The dataset is transformed into a tidy structure where each row represents a single observation.
+This format simplifies aggregation, visualisation, and statistical modelling by ensuring that each
+variable has its own column and each observation its own row.
+
+```{r}
+library(tidyr)
+library(dplyr)
+
+Cleaning_Accidents <- daily_accidents %>%
+  pivot_longer(cols = -DATE,  # All columns except 'DATE' should be gathered
+               names_to = c("Accident_Type", "Region"),  # Separate 'Accident_Type' and 'Period'
+               names_sep = "__",  # Split column names at '__'
+               values_to = "Total_accident")  # The values will go into the 'Total_accident' column
+
+```
+
+In this situation, no spreading operations (pivot_wider()) are required. The collection is already in a large format with particular dates, and each sort of accident is documented in separate columns for each location.
+
+
+We need one gathering operation using pivot_longer(). This will gather the columns that represent different accident categories (FATAL, SERIOUS,...) and their respective regions (__0, __1,..) into a single column for the accident type and another for the region.
+
+
+The columns representing accident categories (FATAL, SERIOUS, NOINJURY, and OTHER) across different regions (__0, __1, etc.) are gathered into two new columns: one for the accident type (Accident_Type) and one for the regions (region).
+
+The pivot_longer() method converts the wide format into the long format. We omit the DATE column from the collection because it reflects a distinct observation for each row.
+
+We use names_to = c("Accident_Type", "Regions") to separate the column names into Accident_Type (e.g., FATAL, SERIOUS, etc.) and Region (e.g., __0, __1).
+
+The gathered values are stored in the Total_accident column.
+ 
+ The gathering operation produces a tidy dataset in which:
+->Date: The DATE column is left as is.
+->Accident_Type: The new Accident_Type column specifies the nature of accident (for example, FATAL or SERIOUS).
+->Region: The new region column lists the various regions (0, 1, 2, etc.).
+->Total_accident: The Total_accident column contains the values that were previously distributed over the wide-format columns.
+
+Provide/print the head of the dataset. 
+```{r}
+# View the first few rows of the tidy data
+head(Cleaning_Accidents)
+```
+## Data Type Validation and Missing Value Handling
+
+Variable data types are validated to ensure dates, categorical variables, and numeric values are
+correctly represented. Missing accident counts are identified and addressed using median imputation
+to maintain analytical stability.
+
+```{r}
+Cleaning_Accidents <- Cleaning_Accidents %>%
+  mutate(DATE = as.Date(DATE, format = "%d/%m/%Y"))
+
+# Convert Total_accident to numeric (in case it was read as text)
+Cleaning_Accidents <- Cleaning_Accidents %>%
+  mutate(Total_accident = as.numeric(Total_accident))
+
+# Convert Accident_Type and Region to factors (categorical variables)
+Cleaning_Accidents <- Cleaning_Accidents %>%
+  mutate(Accident_Type = as.factor(Accident_Type),
+         Region = as.factor(Region))
+
+# Check the structure of the cleaned data
+str(Cleaning_Accidents)
+
+# View the first few rows of the cleaned data
+head(Cleaning_Accidents)
+```
+
+```{r}
+colSums(is.na(Cleaning_Accidents))
+
+# Impute missing values in the 'Total_accident' column with the median of the column
+Cleaning_Accidents_clean <- Cleaning_Accidents %>%
+  mutate(Total_accident = ifelse(is.na(Total_accident), median(Total_accident, na.rm = TRUE), Total_accident))
+
+# View the first few rows of the cleaned data
+head(Cleaning_Accidents_clean)
+```
+## Statistical Distribution Analysis
+
+Accident counts are discrete, non-negative values, making them suitable for count-based statistical
+distributions. Multiple distributions are fitted and compared to determine which best captures the
+observed variability in accident frequency.
+
+```{r}
+
+
+library(fitdistrplus)
+
+
+# Fit Poisson distribution to the  data (TOTAL_ACCIDENTS)
+fit_poisson <- fitdist(Cleaning_Accidents_clean$Total_accident, "pois")
+
+# Fit Negative Binomial distribution to the  data (TOTAL_ACCIDENTS)
+fit_nbinom <- fitdist(Cleaning_Accidents_clean$Total_accident, "nbinom")
+
+# Print summary of the fits
+summary(fit_poisson)
+summary(fit_nbinom)
+```
+
+```{r}
+
+"The thrid distribution used here is geometric Distribution for the dataframe(Cleaning_Accidents_clean).
+
+
+Distribution	Log-Likelihood	AIC	BIC
+Poisson	-113152.6	226307.2	226316
+Negative Binomial	-69393.15	138790.3	138807.8
+Geometric	-75977.49	151957	151965.7
+
+Based on the comparison of log-likelihood, AIC, and BIC values for the Poisson, Negative Binomial, and Geometric distributions, the Negative Binomial distribution provides the best fit for the Total_accident data. With a log-likelihood of -69393.15, it clearly outperforms the Poisson (-113152.6) and Geometric (-75977.49) distributions. Additionally, the Negative Binomial's AIC (138790.3) and BIC (138807.8) are significantly lower than those of the Poisson and Geometric models, indicating a superior fit while accounting for model complexity. The Poisson distribution, which assumes that the mean and variance are equal, is less appropriate for these data, most likely because to overdispersion (where variance exceeds the mean), resulting in a far inferior fit. Although the Geometric distribution outperforms the Poisson, it falls short of the more flexible Negative Binomial. In conclusion, the Negative Binomial distribution is the best match for modeling this accident data because it adequately reflects the variability and overdispersion, as evidenced by its superior goodness-of-fit statistics.
+"
+```
+
+
+```{r}
+
+library(fitdistrplus)
+library(dplyr)
+
+
+    fit_poisson <- fitdist(Cleaning_Accidents_clean$Total_accident, "pois")
+
+    fit_nbinom <- fitdist(Cleaning_Accidents_clean$Total_accident, "nbinom")
+
+    fit_geom <- fitdist(Cleaning_Accidents_clean$Total_accident, "geom")
+    
+    summary(fit_poisson)
+    summary(fit_nbinom)
+    summary(fit_geom)
+
+```
+```{r}
+#Q4.1: Which data source do you plan to use? Justify your decision. 
+"I prefer to use NOAA files because NOAA Climate Data, which is a CRAN NOAA APIs package for weather analysis, may be easier to analyze. All of the files were taken from the team chat, which was intended for sharing by the unit tutor.
+
+Q4.2: From the data source identified, download daily temperature and precipitation data for the 
+region during the relevant time period.
+NOAA data files for the time period of 2016 to 2020 were downloaded.
+All the files are downloaded from the teams chat that was meant to share by unit tutor."
+
+```{r}
+library(readr)
+library(dplyr)
+library(lubridate)
+
+dataset_weather <- read.csv("C:/Users/91636/Downloads/noaa_data_2016to2020.csv")
+
+print(c("Rows in weather data:",dim(dataset_weather)[1]))
+
+dataset_weather$date <- ymd_hms(dataset_weather$date)
+dataset_weather <- dataset_weather %>%
+  rename(DATE = date)
+
+# Find the minimum and maximum dates
+min_date <- min(dataset_weather$date)
+max_date <- max(dataset_weather$date)
+
+# Print the results
+print(paste("Minimum date:", min_date))
+print(paste("Maximum date:", max_date))
+```
+
+## Weather Data Integration
+
+Daily weather observations are imported and filtered to match the time period of the accident
+dataset. Aligning both datasets by date enables joint analysis of environmental conditions and
+accident occurrences.
+
+
+```{r}
+
+library(zoo)
+library(dplyr)
+library(ggplot2)
+
+# Separate the data for max and min temperatures
+max_temp_data <- dataset_weather %>% filter(datatype == "TMAX")
+min_temp_data <- dataset_weather %>% filter(datatype == "TMIN")
+
+# Calculate the average temperature for each day (Daily Temp)
+daily_avg_temp <- max_temp_data %>%
+  inner_join(min_temp_data, by = c("DATE", "station")) %>%
+  mutate(Day_Temperature = (value.x + value.y) / 2) 
+
+# Compute 3-day moving average of daily temperature
+daily_avg_temp <- daily_avg_temp %>%
+  arrange(DATE) %>%
+  mutate(MovingAvgTemp_3d = rollmean(Day_Temperature, k = 3, fill = NA, align = "right"))
+
+# Compute the long-term mean and 95th percentile from available data
+long_term_avg <- mean(daily_avg_temp$Day_Temperature, na.rm = TRUE)
+temp_95th_percentile <- quantile(daily_avg_temp$Day_Temperature, 0.95, na.rm = TRUE)
+
+# Calculate Excess Heat Index (EHI) and Excess Heat Factor (EHF)
+daily_avg_temp <- daily_avg_temp %>%
+  mutate(
+    HeatExcessIndex = MovingAvgTemp_3d - long_term_avg,
+    HeatPercentileDiff = MovingAvgTemp_3d - temp_95th_percentile,
+    ExcessHeatFactor = ifelse(HeatExcessIndex > 0 & HeatPercentileDiff > 0, 
+                              HeatExcessIndex * HeatPercentileDiff, 0)
+  )
+
+# Plot the calculated daily EHF values
+ggplot(daily_avg_temp, aes(x = DATE, y = ExcessHeatFactor)) +
+  geom_line(color = "darkred") +
+  labs(title = "Excess Heat Factor (EHF) per Day",
+       x = "Date", y = "EHF Value") +
+  theme_minimal()
+
+
+```
+
+
+The model's main purpose is to estimate the demand for emergency services, which can help with resource allocation and readiness.
+
+
+Relevance to emergency service demand: The model will assist emergency services in predicting when and where increased demands may occur, therefore improving response times and resource distribution.
+
+Potential users include emergency services, policymakers, disaster management teams, and possibly public health professionals who participate in planning and resource allocation.
+
+Relationship to model/predict : The model will predict future emergency service demands based on historical data and real-time data such as weather patterns, accidents or public health emergencies.
+
+Response variable : The response variable could be the number of emergency calls or emergency service responses.
+
+
+Predictor Variables : The predictor variables may include weather data (temperature, heatwaves), historical call volumes, day of the week, season and other external factors like public events or holidays.
+
+Variable availability: Services such as weather bureaus and emergency contact centers frequently gather and make these variables available, guaranteeing that the model can use up-to-date data.
+
+Historical data for future prediction : Historical patterns in emergency demand can reflect future needs, especially when combined with current weather data or external events.
+
+A Generalized Additive Model (GAM) or Generalized Linear Model (GLM) would be appropriate for estimating the relationship between heat events and emergency service demand since they can handle nonlinear temperature-demand interactions.Time series analysis could also be applied to account for temporal dependencies in the data.Machine learning techniques like Random Forests or Gradient Boosting can capture complicated interactions between predictors.
+
+
+I have picked the last region which is western region.
+
+## Heatwave Feature Engineering (Excess Heat Factor)
+
+Extreme heat events are quantified using the Excess Heat Factor (EHF), a metric designed to capture
+both short-term temperature anomalies and longer-term acclimatisation effects.
+
+
+```{r}
+library(lubridate)
+
+selected_region_car <- 6
+accidents_region <- Cleaning_Accidents_clean %>%
+  filter(Region == selected_region_car)
+
+
+filtered_dataset_weather <- dataset_weather %>%
+  filter(station == "GHCND:ASN00089085")
+
+merge_data <- accidents_region %>%
+  inner_join(daily_avg_temp, by = "DATE",relationship = "many-to-many")
+
+merge_data <- merge_data %>%
+  mutate(ExcessHeatFactor = ifelse(is.na(ExcessHeatFactor), 
+                                   mean(ExcessHeatFactor, na.rm = TRUE), 
+                                   ExcessHeatFactor))
+
+lm_model <- lm(Total_accident ~ ExcessHeatFactor, data = merge_data)
+
+# Summarize the model
+summary(lm_model)
+
+# Plot the fitted values vs actual values
+library(ggplot2)
+ggplot(merge_data, aes(x = fitted(lm_model), y = Total_accident)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  labs(title = "Fitted vs Actual Values", x = "Fitted Values", y = "Actual Values") +
+  theme_minimal()
+
+# Residuals plot to assess model fit
+ggplot(merge_data, aes(x = fitted(lm_model), y = residuals(lm_model))) +
+  geom_point() +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals") +
+  theme_minimal()
+
+# Assessing if a linear function is sufficient: Diagnostic plots
+par(mfrow = c(2, 2))  # Set up multiple plots in one figure
+plot(lm_model)  # Diagnostic plots (Residuals vs Fitted, Q-Q plot, etc.)
+```
+## Predictive Modelling
+
+Regression-based models are applied to examine the relationship between weather-related variables
+and road traffic accident frequency. A baseline linear model is followed by a Generalised Additive
+Model to capture potential non-linear effects.
+
+```{r}
+
+library(mgcv)
+library(ggplot2)
+library(dplyr)
+
+# Fit a Generalized Additive Model (GAM)
+Model_Gam <- gam(Total_accident ~ s(ExcessHeatFactor), data = merge_data)
+
+# Summarize the GAM model to check model fit
+summary(Model_Gam)
+
+# Plot the fitted smooth function for ExcessHeatFactor
+plot(Model_Gam, residuals = TRUE, pch = 1, rug = TRUE)
+
+# Plot residuals vs fitted values to assess model fit
+ggplot(merge_data, aes(x = fitted(Model_Gam), y = residuals(Model_Gam))) +
+  geom_point() +
+  geom_hline(yintercept = 0, color = "blue") +
+  labs(title = "Residuals vs Fitted Values (GAM)",
+       x = "Fitted Values", y = "Residuals") +
+  theme_minimal()
+
+# Diagnostic plots to assess the sufficiency of the model
+par(mfrow = c(2, 2))  # Set up multiple diagnostic plots
+plot(Model_Gam)
+
+```
+## Model Evaluation and Comparison
+
+Model performance is evaluated using residual diagnostics and the Akaike Information Criterion (AIC)
+to assess goodness of fit and determine whether additional model complexity improves explanatory
+power.
+
+```{r}
+# Load necessary libraries
+library(mgcv)
+library(ggplot2)
+library(dplyr)
+
+# Ensure 'ExcessHeatFactor' is filled and remove NAs from the combined dataset
+merge_data <- merge_data %>%
+  filter(!is.na(ExcessHeatFactor))
+
+# Fit a linear model (LM) for Total_accident using ExcessHeatFactor as a predictor
+lm_model <- lm(Total_accident ~ ExcessHeatFactor, data = merge_data)
+
+# Fit a Generalized Additive Model (GAM)
+Model_Gam <- gam(Total_accident ~ s(ExcessHeatFactor), data = merge_data)
+
+# Compare the models using AIC
+aic_lm <- AIC(lm_model)
+aic_gam <- AIC(Model_Gam)
+
+# Print AIC values for comparison
+print(paste("AIC of Linear Model:", aic_lm))
+print(paste("AIC of GAM Model:", aic_gam))
+
+# Determine the best model based on AIC
+if (aic_gam < aic_lm) {
+  print("The GAM model has a lower AIC and is the better fit.")
+  best_model <- "GAM"
+  
+  # Add fitted values and residuals from GAM to the merge_data
+  merge_data$fitted_values <- fitted(Model_Gam)
+  merge_data$residuals <- residuals(Model_Gam)
+  
+} else {
+  print("The Linear model has a lower AIC and is the better fit.")
+  best_model <- "LM"
+  
+  # Add fitted values and residuals from LM to the merge_data
+  merge_data$fitted_values <- fitted(lm_model)
+  merge_data$residuals <- residuals(lm_model)
+}
+
+# Summarize the best-fitted model and plot based on the best model
+if (best_model == "GAM") {
+  summary(Model_Gam)
+  
+  # Plot the smooth term for GAM
+  plot(Model_Gam, residuals = TRUE, pch = 1, rug = TRUE)
+  
+  # Plot fitted vs actual values for the GAM
+  ggplot(merge_data, aes(x = fitted_values, y = Total_accident)) +
+    geom_point() +
+    geom_abline(slope = 1, intercept = 0, color = "yellow") +
+    labs(title = "Fitted vs Actual Values (GAM Model)", x = "Fitted Values", y = "Actual Values") +
+    theme_minimal()
+  
+  # Plot residuals for the GAM model
+  ggplot(merge_data, aes(x = fitted_values, y = residuals)) +
+    geom_point() +
+    geom_hline(yintercept = 0, color = "red") +
+    labs(title = "Residuals vs Fitted Values (GAM Model)", x = "Fitted Values", y = "Residuals") +
+    theme_minimal()
+
+} else {
+  summary(lm_model)
+  
+  # Plot fitted vs actual values for the Linear Model
+  ggplot(merge_data, aes(x = fitted_values, y = Total_accident)) +
+    geom_point() +
+    geom_abline(slope = 1, intercept = 0, color = "green") +
+    labs(title = "Fitted vs Actual Values (Linear Model)", x = "Fitted Values", y = "Actual Values") +
+    theme_minimal()
+  
+  # Plot residuals for the Linear Model
+  ggplot(merge_data, aes(x = fitted_values, y = residuals)) +
+    geom_point() +
+    geom_hline(yintercept = 0, color = "blue") +
+    labs(title = "Residuals vs Fitted Values (Linear Model)", x = "Fitted Values", y = "Residuals") +
+    theme_minimal()
+}
+
+
+```
+
+The purpose of residual analysis is to determine if the residuals (the difference between observed and fitted values) behave as expected given the model's assumptions.We want to ensure that:
+
+->The residuals should be randomly distributed, with no evident patterns. They should be centered on zero, with no systematic tendencies.
+->Homoscedasticity: The residuals should have a consistent variance. In other words, the distribution of residuals should be fairly consistent over all fitted values.
+->No autocorrelation (independence): The residuals must be independent of one another, with no correlation pattern between them.
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(stats)
+
+# Residuals vs Fitted Values Plot (already implemented)
+ggplot(merge_data, aes(x = fitted_values, y = residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, color = "yellow") +
+  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals") +
+  theme_minimal()
+
+# Histogram of residuals to check the distribution
+ggplot(merge_data, aes(x = residuals)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "black") +
+  labs(title = "Histogram of Residuals", x = "Residuals", y = "Frequency") +
+  theme_minimal()
+
+# QQ-Plot to check normality of residuals
+qqnorm(merge_data$residuals)
+qqline(merge_data$residuals, col = "yellow")
+
+# Autocorrelation Function (ACF) plot to check for correlation patterns in residuals
+acf(merge_data$residuals, main = "ACF of Residuals")
+
+```
+->No Clear Pattern in Residuals: If the residuals vs fitted plot displays no pattern and the residuals are randomly distributed around 0, it indicates a good fit.
+->Normally Distributed Residuals: If the QQ-plot and histogram show normality, your model is likely to be genuine.
+->No Significant Autocorrelation: If the ACF plot contains no significant spikes, the residuals are independent, which is ideal for a good model fit.
+
+```{r}
+# Load necessary libraries
+library(mgcv)
+library(ggplot2)
+library(dplyr)
+
+# 1. Fit a model with EHF (Excess Heat Factor)
+model_ehf <- lm(Total_accident ~ ExcessHeatFactor, data = merge_data)
+
+# 2. Fit a simpler model without EHF (using only an intercept)
+model_without_ehf <- lm(Total_accident ~ 1, data = merge_data)
+
+# 3. Compare AIC values
+aic_ehf <- AIC(model_ehf)
+aic_without_ehf <- AIC(model_without_ehf)
+
+# Print AIC values
+print(paste("AIC with EHF:", aic_ehf))
+print(paste("AIC without EHF:", aic_without_ehf))
+
+
+```
+The model without EHF has a slightly lower AIC value (125649.00) compared to the one with EHF (125650.92). Since AIC accounts for model complexity, a lower value suggests a better model. However, the small difference (about 1.92 units) indicates minimal distinction between the models.
+
+
+
+Daily Temperature (Day_Temperature): It may directly affect driving conditions.
+Additional Weather Factors: Precipitation, humidity, wind speed, or visibility could impact accident rates. Including these features in the model could enhance its performance, which AIC can help verify.
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(ggplot2)
+
+# 1. Fit a model using only ExcessHeatFactor as a predictor
+model_ehf <- lm(Total_accident ~ ExcessHeatFactor, data = merge_data)
+
+# 2. Fit a model using only Day_Temperature as a predictor
+model_with_temp <- lm(Total_accident ~ Day_Temperature, data = merge_data)
+
+# 3. Fit a model using both ExcessHeatFactor and Day_Temperature as predictors
+model_with_both <- lm(Total_accident ~ ExcessHeatFactor + Day_Temperature, data = merge_data)
+
+# 4. Compare AIC values for each model
+aic_ehf <- AIC(model_ehf)
+aic_with_temp <- AIC(model_with_temp)
+aic_with_both <- AIC(model_with_both)
+
+# Print AIC values for comparison
+print(paste("AIC with ExcessHeatFactor:", aic_ehf))
+print(paste("AIC with Day_Temperature:", aic_with_temp))
+print(paste("AIC with ExcessHeatFactor + Day_Temperature:", aic_with_both))
+
+# Compare the models based on AIC
+if (aic_with_both < aic_ehf & aic_with_both < aic_with_temp) {
+  print("The model with both ExcessHeatFactor and Day_Temperature has the lowest AIC and is the best fit.")
+} else if (aic_with_temp < aic_ehf) {
+  print("The model with Day_Temperature has the lowest AIC and is the best fit.")
+} else {
+  print("The model with ExcessHeatFactor has the lowest AIC.")
+}
+
+# Summarize the best model
+if (aic_with_both < aic_ehf & aic_with_both < aic_with_temp) {
+  summary(model_with_both)
+} else if (aic_with_temp < aic_ehf) {
+  summary(model_with_temp)
+} else {
+  summary(model_ehf)
+}
+
+```
+
